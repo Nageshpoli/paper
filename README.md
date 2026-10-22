@@ -1,58 +1,93 @@
-# AiStockTrade — Paper Trading
+# AIStockTrade — Paper Trading
 
-A paper trading application for learning and practicing algorithmic trading with Zerodha (Indian markets). No real money is ever placed — all positions are virtual.
+Intraday paper trading app — ORB strategy on Nifty 500 using Zerodha Kite Connect.
+
+> **PAPER TRADING ONLY** — no real orders are ever placed.
+
+---
 
 ## Quick Start
 
-### 1. Prerequisites
-
-- Python 3.9+
-- Zerodha KiteConnect API credentials
-
-### 2. Setup
-
 ```bash
-# Clone / enter the project
-cd /Users/I311860/Personal/Paper
+# 1. Clone and enter
+cd /path/to/Paper
 
-# Create virtualenv and install dependencies
-cd backend
+# 2. Create virtual env and install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Configure credentials
+# 3. Configure credentials
 cp .env.example .env
-# Edit .env and fill in KITE_API_KEY and KITE_API_SECRET
+# Edit .env — add KITE_API_KEY and KITE_API_SECRET
+
+# 4. Start the OAuth callback server (terminal 1)
+uvicorn app.auth_server:app --port 8000
+
+# 5. Start the dashboard (terminal 2)
+streamlit run app/dashboard/app.py
 ```
 
-### 3. Run
+Open **http://localhost:8501** in your browser.
+
+---
+
+## Zerodha Setup
+
+1. Log in to [kite.zerodha.com/settings/apps](https://kite.zerodha.com/settings/apps)
+2. Create or edit your app — set **Redirect URL** to `http://localhost:8000/callback`
+3. Copy API Key and Secret into `.env`
+
+---
+
+## First-Run Setup (in the dashboard sidebar)
+
+| Step | Action | Time |
+|---|---|---|
+| 1 | **Login to Zerodha** — click the link in the sidebar | <5s |
+| 2 | **Load Universe** — fetches Nifty 500 instrument tokens | ~15s |
+| 3 | **Warmup History** — fetches 45-day 5-min candles for all 500 stocks | ~7 min |
+| 4 | **Start Engine** — connects WebSocket and begins scanning | instant |
+
+---
+
+## Strategy: 15-min ORB
+
+**Opening Range:** 9:15–9:30 AM IST  
+**Signal candles:** 5-minute
+
+| Check | Long | Short |
+|---|---|---|
+| Market | BULLISH (Nifty above VWAP) | BEARISH (Nifty below VWAP) |
+| Sector | Top 2 strong sectors | Top 2 weak sectors |
+| Stock | Price above VWAP | Price below VWAP |
+| Breakout | Close > OR High + buffer | Close < OR Low − buffer |
+| RVOL | ≥ 1.5× average | ≥ 1.5× average |
+| Time | Before 14:30 | Before 14:30 |
+
+**Stop-loss:** ORB boundary (ORL for longs, ORH for shorts)  
+**Target:** 2× risk  
+**Max trades/day:** 3  
+**Max open positions:** 3  
+**Force close:** 15:20 IST
+
+---
+
+## Running Backtests
+
+In the dashboard → **⚙ Backtest** tab:
+1. Select date range
+2. Click **Run Backtest**
+3. Results include: win rate, profit factor, max drawdown, equity curve, full trade log
+
+Backtests require history data to be loaded first (step 3 above).
+
+---
+
+## Running Tests
 
 ```bash
-cd backend
-source .venv/bin/activate
-PYTHONPATH=. uvicorn app.main:app --reload
-```
-
-Open **http://127.0.0.1:8000** in your browser.
-
-### 4. First-time setup (in the UI)
-
-Follow the four-step checklist shown on the Dashboard:
-
-| Step | What it does |
-|------|-------------|
-| 1. Kite Login | Redirects to Zerodha to authorize the API |
-| 2. Load Universe | Downloads Nifty 500 constituents from NSE |
-| 3. History Warmup | Fetches 45 days of 5-min + daily candles |
-| 4. Start Engine | Click **START** in the top bar |
-
-The live feed starts automatically once the engine is running and market hours begin (9:15 IST).
-
-### 5. Run tests
-
-```bash
-cd backend
+cd /path/to/Paper
 PYTHONPATH=. pytest tests/ -v
 ```
 
@@ -61,67 +96,17 @@ PYTHONPATH=. pytest tests/ -v
 ## Project Structure
 
 ```
-Paper/
-├── backend/
-│   ├── app/
-│   │   ├── main.py          # FastAPI app factory
-│   │   ├── config.py        # Settings (.env)
-│   │   ├── api/             # REST endpoints (split by domain)
-│   │   ├── db/              # SQLAlchemy models + session
-│   │   ├── engine/          # TradingEngine, PaperBroker, RiskManager, NSESession
-│   │   ├── strategies/      # Strategy registry + ORB strategy
-│   │   ├── backtest/        # Backtest simulator
-│   │   ├── kite/            # Zerodha auth, client, history, websocket
-│   │   └── market/          # Candles, indicators, live feed, scanner, universe
-│   ├── tests/               # pytest test suite
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/
-│   ├── index.html           # Single-page app (Alpine.js + Tailwind CDN)
-│   └── app.js               # All state and API calls
-├── data/                    # SQLite database (auto-created)
-├── docs/
-│   ├── architecture.md      # System design
-│   └── setup.md             # Detailed setup
-└── README.md
-```
-
----
-
-## Adding a New Strategy
-
-1. Create `backend/app/strategies/my_strategy/strategy.py`
-2. Subclass `Strategy` from `app.strategies.base`
-3. Implement `evaluate(candle, **kwargs) -> Signal`
-4. Register it at the bottom of `app/strategies/registry.py`:
-   ```python
-   from app.strategies.my_strategy.strategy import MyStrategy
-   strategy_registry.register(MyStrategy())
-   ```
-
-The new strategy will immediately appear in the UI's Backtest strategy dropdown.
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KITE_API_KEY` | — | Zerodha KiteConnect API key |
-| `KITE_API_SECRET` | — | Zerodha KiteConnect API secret |
-| `VIRTUAL_CAPITAL` | `100000` | Starting paper capital (₹) |
-| `MAX_OPEN_POSITIONS` | `3` | Max concurrent paper positions |
-| `MAX_POSITION_NOTIONAL` | `30000` | Max value per position (₹) |
-| `RISK_PER_TRADE_PCT` | `0.005` | Risk per trade as decimal (0.005 = 0.5%) |
-| `MAX_DAILY_LOSS` | `3000` | Kill-switch daily loss limit (₹) |
-
-## Push to GitHub
-
-```bash
-cd /Users/I311860/Personal/Paper
-git init
-git add .
-git commit -m "Initial paper trading app"
-git remote add origin https://github.com/Nageshpoli/paper.git
-git push -u origin main
+app/
+├── auth_server.py       OAuth callback (FastAPI, port 8000)
+├── config.py            All parameters (pydantic-settings)
+├── db/                  SQLAlchemy models + session
+├── kite/                Zerodha integration (auth, feed, data)
+├── market/              Candle builder, indicators, market/sector analyzers, scanner
+├── strategy/orb.py      ORB signal logic
+├── engine/              Paper broker, risk manager, trading engine runner
+├── backtest/            Historical simulation engine
+└── dashboard/app.py     Streamlit UI
+data/
+└── sector_map.json      Nifty 500 → sector mapping
+tests/                   Unit tests
 ```
