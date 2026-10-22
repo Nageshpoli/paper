@@ -4,6 +4,11 @@ Run: streamlit run app/dashboard/app.py
 """
 from __future__ import annotations
 
+import sys
+import os
+# Ensure project root is on sys.path regardless of how streamlit is invoked
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 import threading
 import time
 from datetime import datetime, date, timedelta
@@ -22,6 +27,18 @@ from app.kite.auth import _auth
 from app.kite.data import refresh_universe, warmup_history
 
 IST = ZoneInfo("Asia/Kolkata")
+
+# ── Handle Zerodha OAuth callback via query params ─────────────────────────
+def _handle_oauth_callback():
+    params = st.query_params
+    if "request_token" in params and params.get("status") == "success":
+        try:
+            _auth.exchange_request_token(params["request_token"])
+            st.query_params.clear()
+            st.success("✅ Zerodha login successful!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Login failed: {e}")
 
 # ── Page config ────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -511,6 +528,7 @@ def _today_realized() -> float:
 # ── Main ────────────────────────────────────────────────────────────────────
 def main():
     _seed_account()
+    _handle_oauth_callback()
     render_sidebar()
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([

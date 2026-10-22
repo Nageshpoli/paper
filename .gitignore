@@ -11,6 +11,7 @@ venv/
 
 # Database
 data/
+!data/sector_map.json
 logs/
 
 # IDE
